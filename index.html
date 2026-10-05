@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AAC host test</title>
+<style>
+  :root { color-scheme: light; }
+  body { margin: 0; font: 14px/1.4 system-ui, sans-serif; background: #eef1f6; color: #1b2330; }
+  header { padding: 8px 12px; background: #1b2a5c; color: #fff; }
+  main { display: flex; gap: 12px; padding: 12px; align-items: flex-start; flex-wrap: wrap; }
+  #frame { border: 1px dashed #7a86a8; background: transparent; }
+  #log { flex: 1 1 320px; min-width: 280px; max-height: 80vh; overflow: auto; background: #fff; border: 1px solid #ccd;
+         padding: 8px; font: 12px/1.35 ui-monospace, monospace; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<header>AAC host test: a page on another site that frames the AI Avatar Concierge. It holds no credentials; everything it
+needs comes from the URL fragment, which it clears on load.</header>
+<main>
+  <iframe id="frame" title="AI Assistant"></iframe>
+  <div id="log"></div>
+</main>
+<script>
+  // Fragment parameters (all optional except agent_id / kiosk_token):
+  //   base, path        the framed page (default https://avatar.forviz.co.th + "/")
+  //   agent_id, kiosk, lang, kiosk_name, venue_id, level_id   passed on as query parameters
+  //   kiosk_token       the Kiosk Token; token_in=query (default) or hash puts it in the frame's query or fragment
+  //   allow             the iframe's allow attribute (default: what embed.js sets)
+  //   w, h              the iframe size in px (default 1000 x 760); a "resize" message from the frame overrides it
+  const p = new URLSearchParams(location.hash.slice(1));
+  history.replaceState(null, "", location.pathname + location.search);
+  const log = (...a) => {
+    const el = document.getElementById("log");
+    el.textContent += new Date().toISOString().slice(11, 23) + " " + a.map((x) => typeof x === "string" ? x : JSON.stringify(x)).join(" ") + "\n";
+    el.scrollTop = el.scrollHeight;
+  };
+  window.__hostLog = [];
+  const base = (p.get("base") || "https://avatar.forviz.co.th").replace(/\/+$/, "");
+  const q = new URLSearchParams();
+  for (const k of ["agent_id", "kiosk", "lang", "kiosk_name", "venue_id", "level_id", "audience_encounter_id"]) {
+    if (p.get(k)) q.set(k, p.get(k));
+  }
+  const token = p.get("kiosk_token");
+  let hash = "";
+  if (token && p.get("token_in") === "hash") hash = "#kiosk_token=" + encodeURIComponent(token);
+  else if (token) q.set("kiosk_token", token);
+  const frame = document.getElementById("frame");
+  frame.allow = p.get("allow") ?? "microphone; camera; autoplay; clipboard-write";
+  frame.style.width = (p.get("w") || "1000") + "px";
+  frame.style.height = (p.get("h") || "760") + "px";
+  frame.src = base + (p.get("path") || "/") + "?" + q.toString() + hash;
+  log("framing", base + (p.get("path") || "/"), "allow=" + JSON.stringify(frame.allow), "token " + (token ? "given (" + (p.get("token_in") || "query") + ")" : "missing"));
+  window.addEventListener("message", (e) => {
+    window.__hostLog.push({ origin: e.origin, data: e.data });
+    log("message from", e.origin, e.data);
+    const d = e.data || {};
+    if (e.origin === base && d.type === "resize" && d.data) {
+      frame.style.width = d.data.width + "px";
+      frame.style.height = d.data.height + "px";
+    }
+  });
+  // Parent -> frame messages, for the test driver: window.__send({type, data}).
+  window.__send = (msg) => { frame.contentWindow.postMessage(msg, base); log("sent", msg); return true; };
+</script>
+</body>
+</html>
