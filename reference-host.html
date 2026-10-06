@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Reference Host</title>
+  <link rel="icon" href="data:,">
+  <style>
+    :root { --bg: #f4f1ec; --panel: #ffffff; --ink: #1f2328; --muted: #6b7280; --line: #e2ddd5; --accent: #b4235a; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, sans-serif; }
+    header { padding: 12px 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
+    header h1 { margin: 0; font-size: 18px; }
+    header p { margin: 4px 0 0; color: var(--muted); }
+    main { display: grid; grid-template-columns: minmax(300px, 380px) 1fr; gap: 16px; padding: 16px; }
+    section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+    h2 { margin: 0 0 8px; font-size: 15px; }
+    form { display: grid; grid-template-columns: auto 1fr; gap: 6px 8px; align-items: center; }
+    form button { grid-column: 1 / -1; }
+    input, select, button { font: inherit; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; }
+    button { background: var(--accent); color: #fff; border: 0; cursor: pointer; }
+    button:disabled { opacity: .45; cursor: default; }
+    .stage { display: flex; justify-content: flex-end; align-items: flex-end; min-height: 500px; padding: 8px;
+             background: repeating-linear-gradient(45deg, #ece7df 0 12px, #e6e0d6 12px 24px); border-radius: 8px; }
+    iframe { border: 0; background: transparent; width: 290px; height: 330px; transition: width .2s, height .2s; }
+    .controls { display: grid; gap: 8px; margin-top: 10px; }
+    .row { display: flex; gap: 6px; flex-wrap: wrap; }
+    .status { color: var(--muted); margin: 6px 0 0; }
+    .logs { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    ol { list-style: none; margin: 0; padding: 0; max-height: 70vh; overflow: auto; }
+    li { border-top: 1px solid var(--line); padding: 6px 0; }
+    li .head { display: flex; gap: 8px; color: var(--muted); }
+    li .head b { color: var(--ink); }
+    li.out .head b { color: var(--accent); }
+    pre { margin: 4px 0 0; white-space: pre-wrap; word-break: break-word; font-size: 12px; }
+    @media (max-width: 900px) { main, .logs { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Reference Host</h1>
+    <p>A Host App that frames the Avatar Frame: what the frame posts, what Server Push delivers, and the four messages a
+      Host App sends back. The Kiosk Token and the stream token stay in the address's fragment and are dropped from it
+      once read.</p>
+  </header>
+  <main>
+    <div>
+      <section>
+        <h2>Kiosk</h2>
+        <form id="config-form">
+          <label for="cfg-agent_id">Agent id</label><input id="cfg-agent_id" name="agent_id" required>
+          <label for="cfg-kiosk_name">Kiosk name</label><input id="cfg-kiosk_name" name="kiosk_name" required>
+          <label for="cfg-lang">Language</label>
+          <select id="cfg-lang" name="lang"><option>th</option><option>en</option><option>zh</option><option>ja</option></select>
+          <label for="cfg-venue_id">Venue id</label><input id="cfg-venue_id" name="venue_id">
+          <label for="cfg-level_id">Level id</label><input id="cfg-level_id" name="level_id">
+          <label for="cfg-frame">Avatar Frame</label><select id="cfg-frame" name="frame"></select>
+          <label for="cfg-receiver">Receiver</label><input id="cfg-receiver" name="receiver" type="url">
+          <label for="cfg-token">Kiosk Token</label>
+          <input id="cfg-token" type="password" autocomplete="off" placeholder="device kiosk token (kept in the fragment)">
+          <label for="cfg-stream">Stream token</label>
+          <input id="cfg-stream" type="password" autocomplete="off" placeholder="this server's stream token (kept in the fragment)">
+          <button id="btn-open" type="submit">Open</button>
+        </form>
+      </section>
+      <section style="margin-top:16px">
+        <h2>Screen</h2>
+        <div class="stage">
+          <iframe id="frame" title="AI Assistant" allow="microphone; autoplay; local-network-access; loopback-network" hidden></iframe>
+        </div>
+        <p class="status">State: <span id="frame-state">—</span> · Session: <span id="frame-session">—</span>
+          · Server Push: <span id="push-status">—</span></p>
+        <div class="controls">
+          <div class="row">
+            <select id="lang-select" aria-label="Screen language"><option>th</option><option>en</option><option>zh</option><option>ja</option></select>
+            <button id="btn-set-language" type="button" disabled>set_language</button>
+            <button id="btn-end-session" type="button" disabled>end_session</button>
+          </div>
+          <div class="row">
+            <input id="item-id" list="item-ids" placeholder="item id (IMDF)" aria-label="Item id">
+            <datalist id="item-ids"></datalist>
+            <button id="btn-item-selected" type="button" disabled>item_selected</button>
+            <button id="btn-navigation-started" type="button" disabled>navigation_started</button>
+          </div>
+        </div>
+      </section>
+    </div>
+    <div class="logs">
+      <section><h2>From the frame (postMessage)</h2><ol id="log-frame"></ol></section>
+      <section><h2>Server Push (SSE)</h2><ol id="log-push"></ol></section>
+    </div>
+  </main>
+  <!-- The Avatar Frames this server lets the page frame (GET / fills it in; the page served as a file frames only the
+       production one): the Kiosk Token goes to no other origin. -->
+  <script id="frame-bases" type="application/json">__FRAME_BASES__</script>
+  <script>
+    "use strict";
+    const FRAME_BASES = (() => {
+      try {
+        const listed = JSON.parse(document.getElementById("frame-bases").textContent);
+        if (Array.isArray(listed) && listed.length) return listed;
+      } catch (err) { /* not filled in */ }
+      return ["https://avatar.forviz.co.th"];
+    })();
+    const SOURCE = "aac-avatar-frame"; // the frame's postMessage contract, v1
+    const VERSION = 1;
+    const $ = (id) => document.getElementById(id);
+
+    // The tokens ride in the fragment, which no server and no log sees; drop them from the address once read.
+    const query = new URLSearchParams(location.search);
+    const fragment = new URLSearchParams(location.hash.slice(1));
+    const token = fragment.get("kiosk_token") || "";
+    const streamToken = fragment.get("stream_token") || "";
+    if (location.hash) history.replaceState(null, "", location.pathname + location.search);
+    const askedFrame = (query.get("frame") || "").replace(/\/+$/, "");
+    const cfg = {
+      agent_id: query.get("agent_id") || "",
+      kiosk_name: query.get("kiosk_name") || "",
+      lang: query.get("lang") || "th",
+      venue_id: query.get("venue_id") || "",
+      level_id: query.get("level_id") || "",
+      frame: FRAME_BASES.includes(askedFrame) ? askedFrame : FRAME_BASES[0],
+      // This server, wherever it is mounted (a gateway may serve it under a path, e.g. /reference-host/).
+      receiver: (query.get("receiver") || location.origin + location.pathname.replace(/\/(index\.html)?$/, "")).replace(/\/+$/, ""),
+    };
+    for (const base of FRAME_BASES) $("cfg-frame").append(new Option(base, base));
+    for (const [key, value] of Object.entries(cfg)) $("cfg-" + key).value = value;
+    $("cfg-token").value = token;
+    $("cfg-stream").value = streamToken;
+    $("lang-select").value = cfg.lang;
+
+    $("config-form").addEventListener("submit", (event) => {
+      event.preventDefault();
+      const next = new URLSearchParams();
+      for (const key of Object.keys(cfg)) {
+        const value = $("cfg-" + key).value.trim();
+        if (value) next.set(key, value);
+      }
+      const target = new URL("?" + next.toString(), location.href);
+      const secrets = new URLSearchParams();
+      if ($("cfg-token").value.trim()) secrets.set("kiosk_token", $("cfg-token").value.trim());
+      if ($("cfg-stream").value.trim()) secrets.set("stream_token", $("cfg-stream").value.trim());
+      if (secrets.size) target.hash = secrets.toString();
+      if (target.search === location.search) {
+        history.replaceState(null, "", target.href); // only the fragment changed: a fragment change does not reload
+        location.reload();
+      } else {
+        location.assign(target.href);
+      }
+    });
+
+    function log(listId, title, data, outbound) {
+      const item = document.createElement("li");
+      if (outbound) item.className = "out";
+      const head = document.createElement("div");
+      head.className = "head";
+      const name = document.createElement("b");
+      name.textContent = title;
+      const time = document.createElement("span");
+      time.textContent = new Date().toLocaleTimeString();
+      head.append(name, time);
+      const body = document.createElement("pre");
+      body.textContent = JSON.stringify(data, null, 2);
+      item.append(head, body);
+      const list = $(listId);
+      list.prepend(item);
+      while (list.children.length > 200) list.lastChild.remove();
+    }
+
+    // Directory items the Agent showed: their ids are what a tap on the panel reports back.
+    const seenIds = new Set();
+    function collectIds(data) {
+      const items = [...(Array.isArray(data?.items) ? data.items : []), ...(data?.item ? [data.item] : [])];
+      for (const item of items) {
+        if (typeof item?.id !== "string" || seenIds.has(item.id)) continue;
+        seenIds.add(item.id);
+        const option = document.createElement("option");
+        option.value = item.id;
+        option.label = typeof item.name === "string" ? item.name : item.id;
+        $("item-ids").append(option);
+        if (!$("item-id").value) $("item-id").value = item.id;
+      }
+    }
+
+    const iframe = $("frame");
+    let frameOrigin = "";
+    const frameRefused = askedFrame !== "" && !FRAME_BASES.includes(askedFrame);
+    if (frameRefused) {
+      $("frame-state").textContent = "this page does not frame " + askedFrame + " (REFERENCE_HOST_FRAME_BASES)";
+    } else if (cfg.agent_id && cfg.kiosk_name && token) {
+      frameOrigin = new URL(cfg.frame).origin;
+      const params = new URLSearchParams({ agent_id: cfg.agent_id, lang: cfg.lang, kiosk_name: cfg.kiosk_name });
+      if (cfg.venue_id) params.set("venue_id", cfg.venue_id);
+      if (cfg.level_id) params.set("level_id", cfg.level_id);
+      iframe.src = cfg.frame + "/frame?" + params.toString() + "#kiosk_token=" + encodeURIComponent(token);
+      iframe.hidden = false;
+    } else {
+      $("frame-state").textContent = "set the Agent, kiosk name and Kiosk Token, then Open";
+    }
+
+    // What the frame posts: only from that iframe's window, at the frame's origin, in the v1 envelope.
+    window.addEventListener("message", (event) => {
+      if (!frameOrigin || event.source !== iframe.contentWindow || event.origin !== frameOrigin) return;
+      const message = event.data;
+      if (!message || message.source !== SOURCE || message.version !== VERSION) return;
+      log("log-frame", message.type, message.data);
+      if (message.type === "ready") {
+        // The frame takes its parent's messages from now on: earlier ones would be lost.
+        for (const button of Object.values(SENDS)) $(button).disabled = false;
+      } else if (message.type === "resize") {
+        iframe.style.width = message.data.width + "px";
+        iframe.style.height = message.data.height + "px";
+        $("frame-state").textContent = message.data.state;
+      } else if (message.type === "session_started") {
+        $("frame-session").textContent = "#" + message.data.session_id;
+      } else if (message.type === "session_ended") {
+        $("frame-session").textContent = "ended (" + message.data.reason + ")";
+      } else if (message.type === "host_event") {
+        collectIds(message.data?.data);
+      }
+    });
+
+    // What a Host App sends the frame (its v1 contract — the platform's contract check compares these with the
+    // frame's), each from its button, with the data it carries (null: nothing to send yet).
+    const SENDS = {
+      set_language: "btn-set-language",
+      end_session: "btn-end-session",
+      item_selected: "btn-item-selected",
+      navigation_started: "btn-navigation-started",
+    };
+    function dataOf(type) {
+      if (type === "set_language") return { lang: $("lang-select").value };
+      if (type === "end_session") return {};
+      const id = $("item-id").value.trim(); // a tap on a result, or directions started to it: the item's IMDF id
+      return id ? { id } : null;
+    }
+    for (const [type, button] of Object.entries(SENDS)) {
+      $(button).addEventListener("click", () => {
+        const data = dataOf(type);
+        if (!frameOrigin || data === null) return;
+        iframe.contentWindow.postMessage({ source: SOURCE, version: VERSION, type, data }, frameOrigin);
+        log("log-frame", "→ " + type, data, true);
+      });
+    }
+
+    // Server Push, as the Host App's server passes it on: this kiosk's events only, for a screen with the stream token.
+    // Read with fetch, not EventSource: an EventSource cannot send the token in a header.
+    function onStreamEvent(name, data) {
+      if (name === "ready") {
+        $("push-status").textContent = "subscribed as " + cfg.kiosk_name;
+      } else if (name === "host_event") {
+        const body = JSON.parse(data);
+        log("log-push", body.event.type + " · seq " + body.seq, body);
+        collectIds(body.event.data);
+      }
+    }
+    async function subscribe() {
+      const url = cfg.receiver + "/events?kiosk_name=" + encodeURIComponent(cfg.kiosk_name);
+      try {
+        const response = await fetch(url, { headers: { Authorization: "Bearer " + streamToken }, cache: "no-store" });
+        if (!response.ok) {
+          $("push-status").textContent = "refused (" + response.status + ")";
+          if (response.status === 401 || response.status === 503) return; // a retry changes nothing
+        } else {
+          const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+          let buffer = "";
+          for (;;) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buffer += value;
+            let end;
+            while ((end = buffer.indexOf("\n\n")) >= 0) {
+              const block = buffer.slice(0, end);
+              buffer = buffer.slice(end + 2);
+              let name = "message";
+              const data = [];
+              for (const line of block.split("\n")) {
+                if (line.startsWith("event: ")) name = line.slice(7);
+                else if (line.startsWith("data: ")) data.push(line.slice(6));
+              }
+              if (data.length) onStreamEvent(name, data.join("\n"));
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("[reference host] stream:", err);
+      }
+      $("push-status").textContent = "reconnecting…";
+      setTimeout(subscribe, 3000);
+    }
+    if (cfg.kiosk_name && streamToken) subscribe();
+    else if (cfg.kiosk_name) $("push-status").textContent = "no stream token";
+  </script>
+</body>
+</html>
